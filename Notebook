@@ -39,3 +39,194 @@ model.compile(
 )
 
 model.summary()
+
+
+"""
+Delhi District Flood Risk Prediction using CNN-ConvLSTM
+------------------------------------------------------
+Dynamic Inputs:
+- Hourly rainfall (IMD/GPM)
+- Soil moisture
+- Yamuna river level (spatially broadcast)
+
+Static Inputs:
+- DEM (Cartosat)
+- Slope
+- LULC
+- Drainage density
+
+Output:
+- Flood probability grid (sigmoid)
+- District-level aggregation
+- GeoJSON + Folium HTML map
+
+Period: 2016–2025
+"""
+
+# ===============================
+# 1. Imports
+# ===============================
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.layers import (
+    Input, Conv2D, ConvLSTM2D,
+    Concatenate, BatchNormalization, Activation
+)
+from tensorflow.keras.models import Model
+import geopandas as gpd
+from rasterstats import zonal_stats
+import folium
+
+# ===============================
+# 2. Configuration
+# ===============================
+T = 24               # temporal window (hours)
+H, W = 64, 64        # spatial grid
+C_DYN = 3            # rainfall, soil moisture, river level
+C_STATIC = 4         # DEM, slope, LULC, drainage density
+EPOCHS = 40
+BATCH_SIZE = 4
+
+# ===============================
+# 3. Utility Functions
+# ===============================
+def normalize(x):
+    return (x - np.mean(x)) / (np.std(x) + 1e-6)
+
+# ===============================
+# 4. Model Definition
+# ===============================
+def static_encoder(static_input):
+    x = Conv2D(32, 3, padding="same", activation="relu")(static_input)
+    x = BatchNormalization()(x)
+    x = Conv2D(64, 3, padding="same", activation="relu")(x)
+    return x
+
+def dynamic_encoder(dynamic_input):
+    x = ConvLSTM2D(
+        64, 3,
+        padding="same",
+        return_sequences=False,
+        activation="tanh"
+    )(dynamic_input)
+    x = BatchNormalization()(x)
+    return x
+
+def build_model():
+    dyn_in = Input(shape=(T, H, W, C_DYN))
+    stat_in = Input(shape=(H, W, C_STATIC))
+
+    dyn_feat = dynamic_encoder(dyn_in)
+    stat_feat = static_encoder(stat_in)
+
+    fused = Concatenate()([dyn_feat, stat_feat])
+
+    x = Conv2D(64, 3, padding="same", activation="relu")(fused)
+    x = Conv2D(1, 1, padding="same")(x)
+    out = Activation("sigmoid")(x)
+
+    model = Model([dyn_in, stat_in], out)
+    model.compile(
+        optimizer="adam",
+        loss="binary_crossentropy",
+        metrics=["AUC"]
+    )
+    return model
+
+# ===============================
+# 5. Dummy Data Loader (Replace with IMD/NRSC)
+# ===============================
+def load_dummy_data(samples=50):
+    X_dyn = normalize(np.random.rand(samples, T, H, W, C_DYN))
+    X_stat = normalize(np.random.rand(samples, H, W, C_STATIC))
+    y = (np.random.rand(samples, H, W, 1) > 0.7).astype(np.float32)
+    return X_dyn, X_stat, y
+
+# ===============================
+# 6. Training
+# ===============================
+print("Loading data...")
+X_dyn, X_stat, y = load_dummy_data()
+
+print("Building model...")
+model = build_model()
+model.summary()
+
+print("Training...")
+model.fit(
+    [X_dyn, X_stat],
+    y,
+    validation_split=0.2,
+    epochs=EPOCHS,
+    batch_size=BATCH_SIZE
+)
+
+model.save("delhi_convlstm_flood_model.h5")
+print("Model saved.")
+
+# ===============================
+# 7. Inference
+# ===============================
+print("Running inference...")
+prob_grid = model.predict([X_dyn[:1], X_stat[:1]])[0, :, :, 0]
+
+# ===============================
+# 8. District Aggregation
+# ===============================
+def aggregate_to_district(prob_grid, transform, district_shp):
+    stats = zonal_stats(
+        district_shp,
+        prob_grid,
+        affine=transform,
+        stats=["mean"]
+    )
+    district_shp["flood_prob"] = [s["mean"] for s in stats]
+    return district_shp
+
+# NOTE: Replace with real Delhi district shapefile
+districts = gpd.read_file("delhi_districts.shp")
+
+# Dummy affine transform (replace with raster transform)
+transform = None
+
+districts = aggregate_to_district(prob_grid, transform, districts)
+districts.to_file("delhi_flood_prob.geojson", driver="GeoJSON")
+print("GeoJSON exported.")
+
+# ===============================
+# 9. Folium Map Export
+# ===============================
+m = folium.Map(location=[28.61, 77.23], zoom_start=10)
+
+folium.Choropleth(
+    geo_data=districts,
+    data=districts,
+    columns=["district", "flood_prob"],
+    key_on="feature.properties.district",
+    fill_color="YlOrRd",
+    fill_opacity=0.7,
+    line_opacity=0.3,
+    legend_name="Flood Probability"
+).add_to(m)
+
+m.save("delhi_flood_risk_map.html")
+print("Interactive map saved.")
+
+# ===============================
+# 10. Threshold Validation
+# ===============================
+def validate_yamuna_threshold(yamuna_level, flood_prob):
+    mean_prob = np.mean(flood_prob)
+    if yamuna_level >= 208:
+        print("Extreme flood condition expected")
+        print("Mean prob:", mean_prob)
+    elif yamuna_level >= 206:
+        print("Moderate flood condition expected")
+        print("Mean prob:", mean_prob)
+    else:
+        print("Low flood risk")
+        print("Mean prob:", mean_prob)
+
+validate_yamuna_threshold(207, prob_grid)
+
+print("Pipeline complete.")

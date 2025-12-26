@@ -1,2 +1,8 @@
-src/model.py
+tensorflow
+numpy
+pandas
+geopandas
+rasterio
+folium
+matplotlib
 

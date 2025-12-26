@@ -1,0 +1,33 @@
+# Delhi District Flood Risk Prediction (ConvLSTM)
+
+This project aims to predict district-wise flood risk probability in Delhi using
+spatiotemporal deep learning (CNN + ConvLSTM).
+
+## Objective
+- Use hourly rainfall, soil moisture, and the Yamuna river levels
+- Combine with static geospatial layers (DEM, LULC, slope, drainage density)
+- Output flood probability grids aggregated to districts
+
+## Data Sources
+- IMD / GPM: Hourly rainfall
+- SMAP / GLDAS: Soil moisture
+- CWC: Yamuna river water levels
+- Cartosat DEM
+- NRSC LULC
+- Delhi district boundaries (GIS)
+
+## Model Approach
+- CNN for spatial feature extraction
+- ConvLSTM for temporal dependency (12–24 hr sequences)
+- Sigmoid probability output
+- District-level aggregation via spatial pooling
+
+## Status
+- Project initialized
+- Data source identification completed
+- Model architecture design in progress
+
+## Planned Outputs
+- GeoJSON with district flood probabilities
+- Interactive flood risk map (Folium)
+- Trained ConvLSTM model weights

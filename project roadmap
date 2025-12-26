@@ -1,0 +1,11 @@
+# Project Roadmap
+
+to-do list
+- Finalize data sources and formats
+- Create preprocessing pipeline
+- Build baseline ConvLSTM model
+- Train model on historical flood events (2016–2025)
+- Validate against known inundation thresholds (206–208m)
+- District-level aggregation
+- GeoJSON and interactive map generation
+- Model tuning and documentation
